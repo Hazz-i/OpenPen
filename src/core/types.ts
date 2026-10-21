@@ -124,7 +124,18 @@ export interface PenNode extends LayoutProps, StrokeProps, EffectProps, TextStyl
   [key: string]: unknown;
 }
 
+export interface BrowserNode extends PenNode {
+  type: 'browser';
+  /** Live page URL. Optional so an empty browser frame can be configured later. */
+  url?: string;
+  /** Device preset id, e.g. desktop/tablet/mobile. */
+  deviceId?: string;
+  zoom?: number;
+  cornerRadius?: number;
+}
+
 export type NodeType =
+  | 'browser'
   | 'frame'
   | 'group'
   | 'rectangle'

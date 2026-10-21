@@ -47,6 +47,8 @@ export class CanvasView {
   private activeGuides: Guide[] = [];
 
   private textEditorOverlay: HTMLTextAreaElement | null = null;
+  private browserModal: HTMLElement | null = null;
+  private browserModalNodeId: string | null = null;
   private unsubscribe: () => void;
   private ro: ResizeObserver;
   private rafId: number | null = null;
@@ -506,10 +508,263 @@ export class CanvasView {
       }
     }
 
+    if (node.type === 'browser') {
+      this.renderBrowserCard(node, r);
+    }
+
     // Children paint above their parent, inside its clip/opacity/transform.
     for (const child of item.children) this.renderNode(child);
 
     ctx.restore();
+  }
+
+
+  private browserHost(node: PenNode): string {
+    const url = typeof node.url === 'string' ? node.url : '';
+    try {
+      return url ? new URL(url).hostname : 'No URL set';
+    } catch {
+      return 'No URL set';
+    }
+  }
+
+  private browserPreviewButtonRect(r: Rect): Rect {
+    const width = Math.max(96, Math.min(190, r.width - 24));
+    const height = 32;
+    return {
+      x: r.x + r.width - width - 12,
+      y: r.y + r.height - height - 12,
+      width,
+      height,
+    };
+  }
+
+  private roundedRectPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+  ): void {
+    const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+    ctx.beginPath();
+    if (r > 0 && typeof ctx.roundRect === 'function') ctx.roundRect(x, y, width, height, r);
+    else ctx.rect(x, y, width, height);
+  }
+
+  private renderBrowserCard(node: PenNode, r: Rect): void {
+    const ctx = this.ctx;
+    const radius = typeof node.cornerRadius === 'number' ? node.cornerRadius : 12;
+    const host = this.browserHost(node);
+    const url = typeof node.url === 'string' ? node.url : '';
+    const barHeight = Math.max(28, Math.min(44, r.height * 0.09));
+
+    ctx.save();
+    this.roundedRectPath(ctx, r.x, r.y, r.width, r.height, radius);
+    ctx.fillStyle = resolvePaintColor(node.fill) || '#18181b';
+    ctx.fill();
+
+    // Address bar, clipped to the rounded card.
+    ctx.save();
+    this.roundedRectPath(ctx, r.x, r.y, r.width, r.height, radius);
+    ctx.clip();
+    ctx.fillStyle = '#27272a';
+    ctx.fillRect(r.x, r.y, r.width, barHeight);
+    ctx.strokeStyle = '#3f3f46';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(r.x, r.y + barHeight + 0.5);
+    ctx.lineTo(r.x + r.width, r.y + barHeight + 0.5);
+    ctx.stroke();
+
+    const iconX = r.x + 20;
+    const iconY = r.y + barHeight / 2;
+    const iconR = Math.min(7, barHeight * 0.24);
+    ctx.strokeStyle = '#a1a1aa';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(iconX, iconY, iconR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(iconX, iconY, iconR * 0.45, iconR, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(iconX - iconR, iconY);
+    ctx.lineTo(iconX + iconR, iconY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#d4d4d8';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(host, iconX + iconR + 10, iconY);
+
+    const bodyTop = r.y + barHeight;
+    const titleSize = Math.max(14, Math.min(24, r.width * 0.018));
+    ctx.fillStyle = '#e4e4e7';
+    ctx.font = `600 ${titleSize}px sans-serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText(host, r.x + 16, bodyTop + 18);
+    ctx.fillStyle = '#a1a1aa';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(url ? 'Live page preview' : 'Set a URL to load this page', r.x + 16, bodyTop + 24 + titleSize);
+
+    const button = this.browserPreviewButtonRect(r);
+    this.roundedRectPath(ctx, button.x, button.y, button.width, button.height, 7);
+    ctx.fillStyle = '#3d99ff';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Open live preview', button.x + button.width / 2, button.y + button.height / 2);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  private onCanvasClick(e: MouseEvent): void {
+    const world = this.store.screenToWorld(this.getClientPoint(e));
+    const item = hitTest(this.getLayout(), world).find((hit) => hit.node.type === 'browser');
+    if (!item) return;
+    // The whole browser card opens the live preview. The drawn button remains a
+    // visual affordance, but relying on its exact hit box made it feel dead.
+    this.openBrowserPreview(item.node);
+  }
+
+  private openBrowserPreview(node: PenNode): void {
+    this.closeBrowserPreview();
+    const nodeId = node.id;
+    const url = typeof node.url === 'string' ? node.url : '';
+    const host = this.browserHost(node);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'pen-browser-preview-overlay';
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,0.72);';
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) this.closeBrowserPreview();
+    });
+
+    const panel = document.createElement('div');
+    panel.className = 'pen-browser-preview-panel';
+    panel.style.cssText =
+      'display:flex;flex-direction:column;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;border-radius:12px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.55);';
+
+    const header = document.createElement('div');
+    header.style.cssText =
+      'display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #27272a;flex:0 0 auto;';
+    const title = document.createElement('div');
+    title.style.cssText = 'font:600 13px sans-serif;color:#f4f4f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    title.textContent = `Live: ${host}`;
+    const device = document.createElement('div');
+    device.style.cssText = 'font:11px sans-serif;color:#71717a;white-space:nowrap;';
+    device.textContent = typeof node.deviceId === 'string' ? node.deviceId : 'desktop';
+    const spacer = document.createElement('div');
+    spacer.style.cssText = 'flex:1;';
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', 'Close live preview');
+    closeButton.style.cssText =
+      'border:0;background:transparent;color:#a1a1aa;font:20px/1 sans-serif;cursor:pointer;padding:2px 6px;';
+    closeButton.textContent = '×';
+    closeButton.addEventListener('click', () => this.closeBrowserPreview());
+    header.append(title, device, spacer, closeButton);
+
+    const address = document.createElement('div');
+    address.style.cssText =
+      'display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #27272a;background:#111113;flex:0 0 auto;';
+    const urlInput = document.createElement('input');
+    urlInput.type = 'url';
+    urlInput.value = url;
+    urlInput.placeholder = 'https://example.com';
+    urlInput.style.cssText =
+      'flex:1;min-width:220px;height:30px;border:1px solid #3f3f46;border-radius:6px;background:#18181b;color:#e4e4e7;padding:0 9px;font:12px sans-serif;outline:none;';
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.style.cssText =
+      'height:30px;border:0;border-radius:6px;background:#3d99ff;color:#fff;padding:0 12px;font:600 12px sans-serif;cursor:pointer;';
+    action.textContent = url ? 'Open in tab' : 'Set URL';
+    if (url) {
+      action.addEventListener('click', () => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      });
+    } else {
+      action.addEventListener('click', () => {
+        const next = urlInput.value.trim();
+        let parsed: URL;
+        try {
+          parsed = new URL(next);
+        } catch {
+          urlInput.style.borderColor = '#ef4444';
+          return;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          urlInput.style.borderColor = '#ef4444';
+          return;
+        }
+        this.store.updateNode(nodeId, { url: next, name: `Live: ${parsed.hostname}` });
+        const updated = this.store.getNode(nodeId);
+        if (updated) this.openBrowserPreview(updated);
+      });
+    }
+    address.append(urlInput, action);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:auto;background:#0f0f11;flex:1 1 auto;min-height:240px;';
+    if (url) {
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+      iframe.setAttribute('referrerpolicy', 'no-referrer');
+      iframe.src = url;
+      iframe.style.cssText = 'border:0;background:#fff;display:block;';
+      iframe.dataset.browserIframe = '1';
+      body.appendChild(iframe);
+    } else {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:32px;color:#a1a1aa;font:13px sans-serif;text-align:center;';
+      empty.textContent = 'No URL set. Paste a page URL above, then press Set URL.';
+      body.appendChild(empty);
+    }
+
+    panel.append(header, address, body);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    this.browserModal = overlay;
+    this.browserModalNodeId = nodeId;
+    window.addEventListener('keydown', this.onBrowserModalKey);
+    window.addEventListener('resize', this.onBrowserModalResize);
+    this.sizeBrowserModal();
+  }
+
+  private sizeBrowserModal(): void {
+    if (!this.browserModal || !this.browserModalNodeId) return;
+    const node = this.store.getNode(this.browserModalNodeId);
+    const iframe = this.browserModal.querySelector<HTMLIFrameElement>('[data-browser-iframe]');
+    if (!node || !iframe) return;
+    const width = Math.max(320, num(node.width, 1440));
+    const height = Math.max(240, num(node.height, 900));
+    const maxWidth = Math.max(320, window.innerWidth - 120);
+    const maxHeight = Math.max(240, window.innerHeight - 170);
+    const scale = Math.min(1, maxWidth / width, maxHeight / height);
+    iframe.style.width = `${Math.round(width * scale)}px`;
+    iframe.style.height = `${Math.round(height * scale)}px`;
+  }
+
+  private onBrowserModalKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') this.closeBrowserPreview();
+  };
+
+  private onBrowserModalResize = (): void => {
+    this.sizeBrowserModal();
+  };
+
+  private closeBrowserPreview(): void {
+    if (this.browserModal) this.browserModal.remove();
+    this.browserModal = null;
+    this.browserModalNodeId = null;
+    window.removeEventListener('keydown', this.onBrowserModalKey);
+    window.removeEventListener('resize', this.onBrowserModalResize);
   }
 
   private setupEvents(): void {
@@ -520,6 +775,7 @@ export class CanvasView {
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
     window.addEventListener('pointerup', (e) => this.onPointerUp(e));
     c.addEventListener('dblclick', (e) => this.onDoubleClick(e));
+    c.addEventListener('click', (e) => this.onCanvasClick(e));
 
     // Right click context menu on canvas
     c.addEventListener('contextmenu', (e) => {
@@ -880,6 +1136,10 @@ export class CanvasView {
     const laidOut = this.getLayout();
     const hits = hitTest(laidOut, world);
 
+    if (hits.length > 0 && hits[0].node.type === 'browser') {
+      this.openBrowserPreview(hits[0].node);
+      return;
+    }
     if (hits.length > 0 && hits[0].node.type === 'text') {
       this.startTextEditing(hits[0]);
     }
@@ -964,5 +1224,6 @@ export class CanvasView {
     this.ro.disconnect();
     this.canvas.remove();
     this.cleanupTextOverlay();
+    this.closeBrowserPreview();
   }
 }

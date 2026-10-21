@@ -8,10 +8,18 @@ import {
 import { nodeToHtml, downloadPng } from '../core/exporters';
 import { pickImageFile } from '../core/files';
 import { createImageNode } from '../core/assets';
-import { toast } from './dialogs';
+import { toast, promptDialog } from './dialogs';
+import { processFilesToAttachments, type AttachmentItem } from './attachments';
+import { loadSettings, saveSettings } from '../core/settings';
 
 export interface AgentOptions {
   onGenerate?(docName: string): void;
+}
+
+interface AgentPreset {
+  id: string;
+  name: string;
+  instructions: string;
 }
 
 interface ChatMessage {
@@ -29,7 +37,33 @@ export function createAgent(
   el.className = 'pen-agent-container';
 
   let messages: ChatMessage[] = [];
+  let agentAttachments: AttachmentItem[] = [];
   const storageKey = `penclone.agent.${store.fileName}`;
+  const presetsKey = 'penclone.agent.presets';
+
+  function getPresets(): AgentPreset[] {
+    try {
+      const raw = localStorage.getItem(presetsKey);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // Ignore
+    }
+    return [
+      { id: 'default', name: 'Default UI Designer', instructions: 'Generate clean modern UI frames and components.' },
+      { id: 'tailwind', name: 'Tailwind Specialist', instructions: 'Focus on atomic tokens and utility layout structures.' },
+    ];
+  }
+
+  function savePresets(list: AgentPreset[]) {
+    try {
+      localStorage.setItem(presetsKey, JSON.stringify(list));
+    } catch {
+      // Ignore
+    }
+  }
+
+  let presets = getPresets();
+  let activePresetId = presets[0]?.id || 'default';
 
   function loadTranscript() {
     try {
@@ -62,16 +96,33 @@ export function createAgent(
   ];
 
   function render() {
+    const currentPreset = presets.find((p) => p.id === activePresetId) || presets[0];
+
     el.innerHTML = `
+      <!-- Presets Header -->
       <div style="display: flex; gap: 6px; align-items: center; justify-content: space-between;">
-        <div style="font-size: 11px; font-weight: 600; color: var(--fg-strong);">Agent Assistant</div>
+        <div style="flex: 1; position: relative;">
+          <select id="select-agent-preset" class="pen-form-input" style="height: 28px; font-size: 11px; padding: 0 8px; width: 100%; cursor: pointer;">
+            ${presets
+              .map(
+                (p) => `
+              <option value="${p.id}" ${p.id === activePresetId ? 'selected' : ''}>${p.name}</option>
+            `
+              )
+              .join('')}
+          </select>
+        </div>
+        <button class="pen-btn-secondary" id="btn-new-preset" style="height: 28px; padding: 0 8px; font-size: 11px; gap: 4px;" title="Create new agent preset">
+          ${svgIcon('plus', 12)}
+          <span>New</span>
+        </button>
         <button class="pen-icon-btn" id="btn-clear-chat" title="Clear chat history">
           ${svgIcon('trash', 12)}
         </button>
       </div>
 
       <div style="font-size: 10px; color: var(--faint); padding: 4px 6px; background: rgba(255, 255, 255, 0.02); border-radius: 4px;">
-        Local demo — no network. Runs entirely offline in your browser.
+        Local demo — no network. Preset: <strong>${currentPreset?.name || 'Default'}</strong>.
       </div>
 
       <!-- Chat history area -->
@@ -90,11 +141,34 @@ export function createAgent(
                 .join('')}
       </div>
 
-      <div style="font-size: 11px; font-weight: 600; color: var(--fg-strong); margin-top: 4px;">
+      <!-- Attachment chips if any -->
+      ${
+        agentAttachments.length > 0
+          ? `
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0;">
+          ${agentAttachments
+            .map(
+              (a) => `
+            <div class="pen-attachment-chip" style="font-size: 10px; padding: 2px 6px;">
+              <span>${svgIcon(a.type === 'image' ? 'image' : 'file-text', 11)}</span>
+              <span class="name">${a.name}</span>
+              <button type="button" class="pen-attachment-remove" data-remove-agent-att="${a.id}">
+                ${svgIcon('minus', 9)}
+              </button>
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+      `
+          : ''
+      }
+
+      <div style="font-size: 11px; font-weight: 600; color: var(--fg-strong); margin-top: 2px;">
         Suggested actions
       </div>
 
-      <div class="pen-agent-chips" style="max-height: 120px; overflow-y: auto;">
+      <div class="pen-agent-chips" style="max-height: 110px; overflow-y: auto;">
         ${suggestions
           .map(
             (s) => `
@@ -108,7 +182,8 @@ export function createAgent(
 
       <!-- Agent composer with attach button -->
       <div style="display: flex; gap: 4px; align-items: center; background: var(--input); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 6px;">
-        <button class="pen-icon-btn" id="btn-agent-attach" title="Attach Image">
+        <input type="file" id="agent-file-input" multiple accept="image/*,.pen,.md,.txt,.json,.ts,.js,.jsx,.tsx" style="display: none;" />
+        <button class="pen-icon-btn" id="btn-agent-attach" title="Attach file or image">
           ${svgIcon('paperclip', 13)}
         </button>
         <input type="text" id="agent-input" placeholder="Ask agent anything..." style="background: transparent; border: none; font-size: 11px; width: 100%; outline: none;" />
@@ -197,6 +272,44 @@ export function createAgent(
   }
 
   function bindEvents() {
+    // Presets dropdown
+    const presetSelect = el.querySelector('#select-agent-preset') as HTMLSelectElement;
+    presetSelect?.addEventListener('change', () => {
+      activePresetId = presetSelect.value;
+      const p = presets.find((x) => x.id === activePresetId);
+      if (p) {
+        toast(`Active preset: ${p.name}`, 'info');
+      }
+      render();
+    });
+
+    // Create New Preset
+    el.querySelector('#btn-new-preset')?.addEventListener('click', async () => {
+      const name = await promptDialog({
+        title: 'New Agent Preset',
+        label: 'Preset Name',
+        placeholder: 'e.g. Design System Architect',
+      });
+      if (!name) return;
+
+      const instructions = await promptDialog({
+        title: 'Preset Instructions',
+        label: 'Instructions',
+        placeholder: 'e.g. Emphasize accessible contrast and minimal typography',
+      });
+
+      const newP: AgentPreset = {
+        id: `preset-${Date.now()}`,
+        name,
+        instructions: instructions || '',
+      };
+      presets.push(newP);
+      activePresetId = newP.id;
+      savePresets(presets);
+      toast(`Created preset "${name}"`, 'success');
+      render();
+    });
+
     el.querySelector('#btn-clear-chat')?.addEventListener('click', () => {
       messages = [];
       saveTranscript();
@@ -227,16 +340,46 @@ export function createAgent(
       }
     });
 
-    // Attachment
-    el.querySelector('#btn-agent-attach')?.addEventListener('click', async () => {
-      const img = await pickImageFile();
-      if (img) {
-        const asset = { ...img, id: `img-${Date.now()}` };
-        const node = createImageNode(asset, 100, 100);
-        store.addNode(node);
-        runAgentCommand(`Inserted image: ${img.name}`);
-        toast('Image asset attached to document', 'success');
+    // File input for attachments
+    const fileInput = el.querySelector('#agent-file-input') as HTMLInputElement;
+    el.querySelector('#btn-agent-attach')?.addEventListener('click', () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener('change', async () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        const newAtts = await processFilesToAttachments(fileInput.files);
+        agentAttachments = [...agentAttachments, ...newAtts].slice(0, 4);
+
+        // If image attached, insert into canvas as well
+        for (const att of newAtts) {
+          if (att.type === 'image' && att.dataUrl) {
+            const asset = {
+              id: att.id,
+              name: att.name,
+              dataUrl: att.dataUrl,
+              width: 300,
+              height: 200,
+              size: att.size,
+            };
+            const node = createImageNode(asset, 100, 100);
+            store.addNode(node);
+          }
+        }
+
+        render();
+        toast('Files attached to agent session', 'success');
       }
+    });
+
+    // Remove agent attachment
+    el.querySelectorAll('[data-remove-agent-att]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-remove-agent-att');
+        agentAttachments = agentAttachments.filter((a) => a.id !== id);
+        render();
+      });
     });
   }
 

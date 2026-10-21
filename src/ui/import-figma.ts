@@ -1,10 +1,430 @@
-import type { PenNode } from '../core/types';
+import type { Paint, PaintGradient, PenNode } from '../core/types';
 import { svgIcon } from './icons';
 import { toast } from './dialogs';
 import '../styles/tokens.css';
 import '../styles/base.css';
 import '../styles/components.css';
 import '../styles/imports.css';
+
+
+type FigmaRecord = Record<string, unknown>;
+
+const MAX_FIGMA_NODES = 3000;
+const MAX_FIGMA_DEPTH = 50;
+
+function isFigmaRecord(value: unknown): value is FigmaRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): FigmaRecord | null {
+  return isFigmaRecord(value) ? value : null;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function hexByte(value: number): string {
+  return clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0').toUpperCase();
+}
+
+function figmaColor(value: unknown, opacity = 1): string | null {
+  const color = asRecord(value);
+  if (!color) return null;
+  const alpha = clamp(asNumber(color.a, 1) * clamp(opacity, 0, 1), 0, 1);
+  const hex = `#${hexByte(asNumber(color.r) * 255)}${hexByte(asNumber(color.g) * 255)}${hexByte(
+    asNumber(color.b) * 255,
+  )}`;
+  return alpha < 0.999 ? `${hex}${hexByte(alpha * 255)}` : hex;
+}
+
+function figmaGradient(paint: FigmaRecord): PaintGradient | null {
+  const stops = asArray(paint.gradientStops);
+  const colors: { color: string; position: number }[] = [];
+  for (const rawStop of stops) {
+    const stop = asRecord(rawStop);
+    if (!stop) continue;
+    const color = figmaColor(stop.color);
+    if (!color) continue;
+    colors.push({ color, position: clamp(asNumber(stop.position), 0, 1) });
+  }
+  if (colors.length < 2) return null;
+  const gradient: PaintGradient = {
+    type: 'gradient',
+    gradientType: asString(paint.type) === 'GRADIENT_RADIAL' ? 'radial' : 'linear',
+    colors,
+  };
+  const opacity = asNumber(paint.opacity, 1);
+  if (opacity < 1) gradient.opacity = clamp(opacity, 0, 1);
+  return gradient;
+}
+
+function figmaFill(fills: unknown): Paint | undefined {
+  let imagePlaceholder = false;
+  for (const rawPaint of asArray(fills)) {
+    const paint = asRecord(rawPaint);
+    if (!paint || paint.visible === false) continue;
+    const type = asString(paint.type);
+    if (type === 'SOLID') {
+      const color = figmaColor(paint.color, asNumber(paint.opacity, 1));
+      if (color) return color;
+    } else if (type === 'GRADIENT_LINEAR' || type === 'GRADIENT_RADIAL') {
+      const gradient = figmaGradient(paint);
+      if (gradient) return gradient;
+    } else if (type === 'IMAGE') {
+      imagePlaceholder = true;
+    }
+  }
+  return imagePlaceholder ? '#e4e4e7' : undefined;
+}
+
+function figmaStroke(node: FigmaRecord): { stroke?: Paint; strokeWidth?: number } {
+  for (const rawPaint of asArray(node.strokes)) {
+    const paint = asRecord(rawPaint);
+    if (!paint || paint.visible === false || asString(paint.type) !== 'SOLID') continue;
+    const color = figmaColor(paint.color, asNumber(paint.opacity, 1));
+    if (!color) continue;
+    const width = asNumber(node.strokeWeight, 1);
+    if (width <= 0) return {};
+    return { stroke: color, strokeWidth: width };
+  }
+  return {};
+}
+
+function figmaCornerRadius(node: FigmaRecord): number | [number, number, number, number] | undefined {
+  const radii = asArray(node.rectangleCornerRadii);
+  if (radii.length === 4 && radii.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+    return [
+      Math.max(0, asNumber(radii[0])),
+      Math.max(0, asNumber(radii[1])),
+      Math.max(0, asNumber(radii[2])),
+      Math.max(0, asNumber(radii[3])),
+    ];
+  }
+  const radius = asNumber(node.cornerRadius, NaN);
+  return Number.isFinite(radius) && radius >= 0 ? radius : undefined;
+}
+
+function figmaFontWeight(style: FigmaRecord): string | undefined {
+  const fontName = asRecord(style.fontName);
+  const styleName = `${asString(fontName?.style)} ${asString(style.fontStyle)}`.toLowerCase();
+  if (/semi\s*bold/.test(styleName)) return '600';
+  if (/extra\s*bold|ultra\s*bold/.test(styleName)) return '800';
+  if (/bold/.test(styleName)) return '700';
+  if (/black|heavy/.test(styleName)) return '900';
+  if (/medium/.test(styleName)) return '500';
+  if (/light/.test(styleName)) return '300';
+  if (/thin|hairline/.test(styleName)) return '100';
+  if (/regular|book|normal/.test(styleName)) return '400';
+  const numeric = asNumber(style.fontWeight, NaN);
+  return Number.isFinite(numeric) ? String(Math.round(numeric)) : undefined;
+}
+
+function figmaTextStyle(node: FigmaRecord): Partial<PenNode> {
+  const style = asRecord(node.style) ?? {};
+  const fontName = asRecord(style.fontName);
+  const fontSize = asNumber(style.fontSize, 14);
+  const text: Partial<PenNode> = {
+    content: asString(node.characters),
+    fontSize: Math.max(1, fontSize),
+  };
+
+  const family = asString(fontName?.family) || asString(style.fontFamily);
+  if (family) text.fontFamily = family;
+  const weight = figmaFontWeight(style);
+  if (weight) text.fontWeight = weight;
+  const styleName = `${asString(fontName?.style)} ${asString(style.fontStyle)}`.toLowerCase();
+  if (/italic|oblique/.test(styleName)) text.fontStyle = 'italic';
+
+  const letterSpacing = asNumber(style.letterSpacing, NaN);
+  if (Number.isFinite(letterSpacing)) text.letterSpacing = letterSpacing;
+
+  const lineHeightPx = asNumber(style.lineHeightPx, NaN);
+  if (Number.isFinite(lineHeightPx) && fontSize > 0) {
+    const multiplier = lineHeightPx / fontSize;
+    if (multiplier >= 0.5 && multiplier <= 4) text.lineHeight = multiplier;
+  }
+
+  const align = (asString(node.textAlignHorizontal) || asString(style.textAlignHorizontal)).toUpperCase();
+  if (align === 'LEFT' || align === 'CENTER' || align === 'RIGHT' || align === 'JUSTIFIED') {
+    text.textAlign = align === 'JUSTIFIED' ? 'justify' : (align.toLowerCase() as 'left' | 'center' | 'right');
+  }
+
+  const fill = figmaFill(node.fills);
+  if (fill) text.fill = fill;
+  return text;
+}
+
+function figmaGeometry(node: FigmaRecord): string | null {
+  for (const key of ['fillGeometry', 'strokeGeometry']) {
+    for (const rawGeometry of asArray(node[key])) {
+      const geometry = asRecord(rawGeometry);
+      const path = asString(geometry?.path);
+      if (path) return path;
+    }
+  }
+  return null;
+}
+
+function figmaBox(
+  node: FigmaRecord,
+  parentX: number,
+  parentY: number,
+): { absX: number; absY: number; width: number; height: number } {
+  const bbox = asRecord(node.absoluteBoundingBox);
+  const size = asRecord(node.size);
+  const absX = bbox ? asNumber(bbox.x, parentX) : parentX + asNumber(node.x, 0);
+  const absY = bbox ? asNumber(bbox.y, parentY) : parentY + asNumber(node.y, 0);
+  const width = bbox
+    ? asNumber(bbox.width, 100)
+    : asNumber(node.width, asNumber(size?.x, 100));
+  const height = bbox
+    ? asNumber(bbox.height, 100)
+    : asNumber(node.height, asNumber(size?.y, 100));
+  return {
+    absX,
+    absY,
+    width: Math.max(0, Number.isFinite(width) ? width : 100),
+    height: Math.max(0, Number.isFinite(height) ? height : 100),
+  };
+}
+
+interface FigmaConvertState {
+  count: number;
+  ids: Set<string>;
+  seq: number;
+}
+
+function figmaId(rawId: unknown, state: FigmaConvertState): string {
+  const suffix = asString(rawId).replace(/[^a-zA-Z0-9_-]/g, '-');
+  const base = suffix ? `fg-${suffix}` : `fg-node-${++state.seq}`;
+  let id = base;
+  let duplicate = 1;
+  while (state.ids.has(id)) {
+    duplicate += 1;
+    id = `${base}-${duplicate}`;
+  }
+  state.ids.add(id);
+  return id;
+}
+
+function convertFigmaNode(
+  raw: unknown,
+  parentX: number,
+  parentY: number,
+  depth: number,
+  origin: { x: number; y: number },
+  state: FigmaConvertState,
+): PenNode | null {
+  if (depth > MAX_FIGMA_DEPTH || state.count >= MAX_FIGMA_NODES) return null;
+  const node = asRecord(raw);
+  if (!node || node.visible === false) return null;
+  state.count += 1;
+
+  const type = asString(node.type).toUpperCase();
+  const containerTypes = new Set(['FRAME', 'COMPONENT', 'COMPONENT_SET', 'SECTION', 'INSTANCE', 'GROUP']);
+  const shapeTypes = new Set(['RECTANGLE', 'ELLIPSE', 'LINE', 'VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON']);
+  if (!containerTypes.has(type) && !shapeTypes.has(type) && type !== 'TEXT') return null;
+
+  const box = figmaBox(node, parentX, parentY);
+  const outType: PenNode['type'] =
+    type === 'GROUP'
+      ? 'group'
+      : containerTypes.has(type)
+        ? 'frame'
+        : type === 'RECTANGLE'
+          ? 'rectangle'
+          : type === 'ELLIPSE'
+            ? 'ellipse'
+            : type === 'TEXT'
+              ? 'text'
+              : 'path';
+
+  const converted: PenNode = {
+    type: outType,
+    id: figmaId(node.id, state),
+    name: asString(node.name) || type.toLowerCase(),
+    x: box.absX - origin.x,
+    y: box.absY - origin.y,
+    width: box.width,
+    height: box.height,
+  };
+
+  const rotation = asNumber(node.rotation, 0);
+  if (Math.abs(rotation) > 0.001) converted.rotation = -rotation;
+  const opacity = asNumber(node.opacity, 1);
+  if (opacity < 1) converted.opacity = clamp(opacity, 0, 1);
+  if (type !== 'GROUP' && type !== 'TEXT' && type !== 'LINE') {
+    const fill = figmaFill(node.fills);
+    if (fill) converted.fill = fill;
+  }
+  if (type !== 'TEXT') {
+    const stroke = figmaStroke(node);
+    if (stroke.stroke) converted.stroke = stroke.stroke;
+    if (stroke.strokeWidth != null) converted.strokeWidth = stroke.strokeWidth;
+  }
+
+  if (type === 'FRAME' || type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'SECTION' || type === 'INSTANCE') {
+    converted.layout = 'none';
+    const radius = figmaCornerRadius(node);
+    if (radius != null) converted.cornerRadius = radius;
+    if (node.clipsContent === true) converted.clip = true;
+  } else if (type === 'GROUP') {
+    converted.layout = 'none';
+  } else if (type === 'RECTANGLE' || type === 'ELLIPSE') {
+    const radius = figmaCornerRadius(node);
+    if (radius != null) converted.cornerRadius = radius;
+  } else if (type === 'LINE') {
+    converted.geometry = `M0 0L${box.width} 0`;
+    converted.height = Math.max(1, box.height);
+  } else if (type === 'VECTOR' || type === 'BOOLEAN_OPERATION' || type === 'STAR' || type === 'POLYGON') {
+    const geometry = figmaGeometry(node);
+    if (geometry) {
+      converted.geometry = geometry;
+    } else {
+      converted.type = 'rectangle';
+    }
+  } else if (type === 'TEXT') {
+    Object.assign(converted, figmaTextStyle(node));
+  }
+
+  if (containerTypes.has(type)) {
+    const children: PenNode[] = [];
+    for (const rawChild of asArray(node.children)) {
+      if (state.count >= MAX_FIGMA_NODES) break;
+      try {
+        const child = convertFigmaNode(rawChild, box.absX, box.absY, depth + 1, origin, state);
+        if (child) children.push(child);
+      } catch {
+        // Keep the rest of the document even when one node is malformed.
+      }
+    }
+    if (children.length > 0) converted.children = children;
+  }
+
+  return converted;
+}
+
+/**
+ * Converts a Figma REST file or node payload into .pen nodes.
+ * Accepts `{document: FigmaFile}` and `{nodes: Record<string, {document: FigmaNode}>}`.
+ * Malformed nodes are skipped rather than aborting the whole import.
+ */
+export function figmaToPenDocument(payload: unknown): { nodes: PenNode[]; name: string } {
+  const empty = { nodes: [] as PenNode[], name: 'Figma import' };
+  try {
+    const root = asRecord(payload);
+    if (!root) return empty;
+
+    let top: unknown[] = [];
+    let name = 'Figma import';
+    let origin = { x: 0, y: 0 };
+    const outer = asRecord(root.document);
+
+    // Figma's REST file payload is { name, document: DOCUMENT }. Our backend wraps
+    // that as { document: File }; node endpoints return { nodes }. Accept every
+    // shape, including a bare DOCUMENT/page node and the old nested fixture shape.
+    let file: FigmaRecord | null = null;
+    let documentNode: FigmaRecord | null = null;
+    if (outer) {
+      const nested = asRecord(outer.document);
+      if (nested) {
+        file = outer;
+        documentNode = nested;
+      } else {
+        file = root;
+        documentNode = outer;
+      }
+    } else if (asString(root.type).toUpperCase() === 'DOCUMENT') {
+      file = root;
+      documentNode = root;
+    }
+
+    if (documentNode) {
+      name = asString(file?.name) || asString(documentNode.name) || name;
+      const children = asArray(documentNode.children)
+        .map(asRecord)
+        .filter((node): node is FigmaRecord => !!node);
+      const page = children.find((candidate) => asString(candidate.type).toUpperCase() === 'PAGE');
+      const docType = asString(documentNode.type).toUpperCase();
+      if (docType && docType !== 'DOCUMENT' && docType !== 'PAGE' && !page) {
+        top = [documentNode];
+      } else {
+        const container = page ?? documentNode;
+        const pageBox = asRecord(container.absoluteBoundingBox);
+        if (pageBox) origin = { x: asNumber(pageBox.x), y: asNumber(pageBox.y) };
+        top = asArray(container.children);
+      }
+    } else {
+      const nodes = asRecord(root.nodes);
+      if (nodes) {
+        for (const value of Object.values(nodes)) {
+          const entry = asRecord(value);
+          const node = asRecord(entry?.document) ?? entry;
+          if (!node) continue;
+          if (name === 'Figma import') name = asString(node.name) || name;
+          top.push(node);
+        }
+      } else if (Array.isArray(root.children)) {
+        name = asString(root.name) || name;
+        top = root.children;
+      }
+    }
+
+    if (top.length === 0) return empty;
+    if (name === 'Figma import') {
+      const first = asRecord(top[0]);
+      name = asString(first?.name) || name;
+    }
+
+    const state: FigmaConvertState = { count: 0, ids: new Set(), seq: 0 };
+    const nodes: PenNode[] = [];
+    for (const raw of top) {
+      if (state.count >= MAX_FIGMA_NODES) break;
+      try {
+        const node = convertFigmaNode(raw, origin.x, origin.y, 0, origin, state);
+        if (node) nodes.push(node);
+      } catch {
+        // A malformed subtree must not discard the rest of the import.
+      }
+    }
+    return { nodes, name };
+  } catch {
+    return empty;
+  }
+}
+
+
+const FIGMA_ERROR_HINTS: Record<string, string> = {
+  figma_unauthorized: 'Figma rejected the personal access token.',
+  figma_unavailable: 'Figma could not be reached.',
+  figma_too_large: 'The Figma response was too large.',
+  figma_token_required: 'A Figma personal access token is required.',
+  invalid_figma_url: 'The Figma URL or file key is invalid.',
+  invalid_token: 'The Figma token contains invalid characters.',
+  invalid_node_id: 'The Figma node id is invalid.',
+  rate_limited: 'Figma rate-limited the request. Try again later.',
+};
+
+function figmaErrorText(status: number, body: unknown, fallback: string): string {
+  const record = asRecord(body);
+  const code = asString(record?.error);
+  if (!code) return `${fallback} (HTTP ${status})`;
+  const hint = FIGMA_ERROR_HINTS[code];
+  return hint ? `${code}: ${hint}` : code;
+}
 
 export function openFigmaImport(): Promise<{ nodes: PenNode[]; name: string } | null> {
   return new Promise((resolve) => {
@@ -299,23 +719,19 @@ export function openFigmaImport(): Promise<{ nodes: PenNode[]; name: string } | 
 
             if (!res.ok) {
               const errData = await res.json().catch(() => ({}));
-              throw new Error(errData.error || `Import failed (${res.status})`);
+              throw new Error(figmaErrorText(res.status, errData, 'Figma import failed'));
             }
 
             const data = await res.json();
-            // Create fallback frame with doc title
-            const docName = data.document?.name || 'Figma Import';
-            const frameNode: PenNode = {
-              type: 'frame',
-              id: `figma-${Date.now()}`,
-              name: docName,
-              x: 0,
-              y: 0,
-              width: 1200,
-              height: 800,
-              fill: '#ffffff',
-            };
-            close({ nodes: [frameNode], name: docName });
+            const converted = figmaToPenDocument(data);
+            if (converted.nodes.length === 0) {
+              loading = false;
+              errorMessage =
+                'Figma returned no importable frames. Check that the file has visible frames, components, shapes, or text.';
+              render();
+              return;
+            }
+            close(converted);
           } catch (err) {
             loading = false;
             errorMessage = (err as Error).message || 'Failed to fetch Figma document.';

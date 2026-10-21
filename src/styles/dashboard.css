@@ -532,3 +532,77 @@
 [data-theme='light'] .pen-recent-thumb-container {
   background: var(--input);
 }
+
+/* Composer Attachment Chips */
+.pen-composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0 8px 0;
+}
+
+.pen-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--fg);
+  max-width: 220px;
+}
+
+.pen-attachment-chip span.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pen-attachment-remove {
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pen-attachment-remove:hover {
+  color: var(--fg-strong);
+}
+
+/* Clickable Composer Badges */
+.pen-badge-tag.clickable,
+.pen-badge-muted.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.pen-badge-tag.clickable:hover {
+  background-color: rgba(234, 179, 8, 0.15);
+}
+
+.pen-badge-muted.clickable:hover {
+  background-color: var(--input);
+  color: var(--fg-strong);
+  border-radius: 4px;
+}
+
+.pen-model-select {
+  position: relative;
+}
+
+.pen-model-select select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+

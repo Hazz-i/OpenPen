@@ -19,7 +19,9 @@ import {
   toast,
   confirmDialog,
   showCommandPalette,
+  showContextMenu,
 } from './dialogs';
+import { serializePenFile } from '../core/format';
 import {
   groupSelection,
   ungroupSelection,
@@ -402,6 +404,61 @@ export function mountEditor(
     else openSettings({ onApply: (s) => (canvasView.settings = s) });
   };
   container.querySelector('#btn-settings-top')?.addEventListener('click', openEditorSettings);
+
+  // Wire Share menu
+  const shareBtn = container.querySelector('#btn-share-top') as HTMLElement;
+  shareBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const rect = shareBtn.getBoundingClientRect();
+    const auth = getAuth();
+    const hasSelection = store.selection.length > 0;
+    const selectedNode = hasSelection ? store.getNode(store.selection[0]) : null;
+
+    showContextMenu(rect.left, rect.bottom + 6, [
+      {
+        label: 'Copy .pen JSON',
+        shortcut: 'Cmd+C',
+        action: () => {
+          const json = serializePenFile(store.doc);
+          navigator.clipboard?.writeText(json);
+          toast('Copied .pen document JSON to clipboard', 'success');
+        },
+      },
+      {
+        label: 'Download .pen File',
+        shortcut: 'Cmd+S',
+        action: () => {
+          opts.onSaveAs();
+        },
+      },
+      'separator',
+      {
+        label: hasSelection ? 'Copy Selected Frame HTML' : 'Copy Document HTML',
+        action: () => {
+          if (selectedNode) {
+            handleCopyHtml(selectedNode.id);
+          } else if (store.doc.children.length > 0) {
+            handleCopyHtml(store.doc.children[0].id);
+          } else {
+            toast('No elements to copy HTML from', 'error');
+          }
+        },
+      },
+      {
+        label: 'Export PNG Image',
+        action: () => {
+          downloadPng(store.doc, selectedNode, store.fileName.replace(/\.pen$/, ''), 2);
+          toast('Exporting PNG...', 'info');
+        },
+      },
+      'separator',
+      {
+        label: auth.user ? 'Copy cloud link' : 'Copy local file link',
+        disabled: true,
+        action: () => {},
+      },
+    ]);
+  });
 
   const onOpenAuthEvent = () => {
     opts.onOpenAuth?.();

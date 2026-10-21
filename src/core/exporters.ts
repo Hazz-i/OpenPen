@@ -395,6 +395,15 @@ function renderRef(node: PenNode, width: number, height: number, ctx: SvgContext
   }
 }
 
+function browserHost(node: PenNode): string {
+  const url = str(node.url);
+  try {
+    return url ? new URL(url).hostname : 'No URL set';
+  } catch {
+    return 'No URL set';
+  }
+}
+
 function renderNode(node: PenNode, ctx: SvgContext, depth: number): string {
   if (node.visible === false || depth > 60) return '';
   const { width, height } = nodeSize(node);
@@ -403,6 +412,34 @@ function renderNode(node: PenNode, ctx: SvgContext, depth: number): string {
     const contents = renderRef(node, width, height, ctx, depth);
     if (!contents) return '';
     return `<g transform="${transformFor(node)}"${opacityAttr(node)}>${contents}</g>`;
+  }
+
+  if (node.type === 'browser') {
+    const clip = clipIdFor(node, width, height, ctx);
+    const host = browserHost(node);
+    const url = str(node.url);
+    const barHeight = Math.max(28, Math.min(44, height * 0.09));
+    const iconX = 20;
+    const iconY = barHeight / 2;
+    const iconR = Math.min(7, barHeight * 0.24);
+    const buttonWidth = Math.max(96, Math.min(190, width - 24));
+    const buttonX = width - buttonWidth - 12;
+    const buttonY = height - 44;
+    const titleSize = Math.max(14, Math.min(24, width * 0.018));
+    let inner = renderShapeBody(node, width, height, ctx, activePaint(node.fill));
+    inner += `<g clip-path="url(#${clip})">`;
+    inner += `<rect x="0" y="0" width="${width}" height="${barHeight}" fill="#27272a"/>`;
+    inner += `<line x1="0" y1="${barHeight}" x2="${width}" y2="${barHeight}" stroke="#3f3f46"/>`;
+    inner += `<circle cx="${iconX}" cy="${iconY}" r="${iconR}" fill="none" stroke="#a1a1aa" stroke-width="1.4"/>`;
+    inner += `<ellipse cx="${iconX}" cy="${iconY}" rx="${iconR * 0.45}" ry="${iconR}" fill="none" stroke="#a1a1aa" stroke-width="1.4"/>`;
+    inner += `<line x1="${iconX - iconR}" y1="${iconY}" x2="${iconX + iconR}" y2="${iconY}" stroke="#a1a1aa" stroke-width="1.4"/>`;
+    inner += `<text x="${iconX + iconR + 10}" y="${iconY}" dominant-baseline="middle" font-family="sans-serif" font-size="12" fill="#d4d4d8">${esc(host)}</text>`;
+    inner += `<text x="16" y="${barHeight + 18}" font-family="sans-serif" font-size="${titleSize}" font-weight="600" fill="#e4e4e7">${esc(host)}</text>`;
+    inner += `<text x="16" y="${barHeight + 24 + titleSize}" font-family="sans-serif" font-size="12" fill="#a1a1aa">${esc(url ? 'Live page preview' : 'No URL set')}</text>`;
+    inner += `<rect x="${buttonX}" y="${buttonY}" width="${buttonWidth}" height="32" rx="7" fill="#3d99ff"/>`;
+    inner += `<text x="${buttonX + buttonWidth / 2}" y="${buttonY + 16}" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="11" font-weight="600" fill="#ffffff">Open live preview</text>`;
+    inner += '</g>';
+    return `<g transform="${transformFor(node)}"${opacityAttr(node)}>${inner}</g>`;
   }
 
   if (node.type === 'text' || node.type === 'note' || node.type === 'prompt' || node.type === 'context') {

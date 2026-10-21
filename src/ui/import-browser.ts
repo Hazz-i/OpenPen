@@ -19,6 +19,25 @@ const PRESETS: DevicePreset[] = [
   { id: 'mobile', name: 'Mobile (390)', width: 390, height: 844, icon: 'message-square' },
 ];
 
+
+const BROWSER_ERROR_HINTS: Record<string, string> = {
+  local_import_disabled: 'Local URL imports are disabled on this server. Start it with -allow-local-imports.',
+  fetch_failed: 'The backend could not fetch that page.',
+  invalid_url: 'The URL is invalid or points to a blocked address.',
+  response_too_large: 'The page is larger than the import limit.',
+  fetch_timeout: 'The page took too long to fetch.',
+  rate_limited: 'The import endpoint is rate-limited. Try again later.',
+};
+
+function browserErrorText(status: number, body: unknown, fallback: string): string {
+  const record =
+    typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null;
+  const code = typeof record?.error === 'string' ? record.error : '';
+  if (!code) return `${fallback} (HTTP ${status})`;
+  const hint = BROWSER_ERROR_HINTS[code];
+  return hint ? `${code}: ${hint}` : code;
+}
+
 export function openBrowserImport(): Promise<{ nodes: PenNode[]; name: string } | null> {
   return new Promise((resolve) => {
     let url = '';
@@ -117,37 +136,39 @@ export function openBrowserImport(): Promise<{ nodes: PenNode[]; name: string } 
         ],
       });
 
-      // Add Browser Node alongside
-      const browserNode: PenNode = {
-        type: 'frame',
-        id: `browser-node-${Date.now()}`,
-        name: `Browser: ${new URL(pageUrl).hostname}`,
-        x: 0,
-        y: 450,
-        width: preset.width,
-        height: 500,
-        fill: '#f4f4f5',
-        metadata: {
-          browserUrl: pageUrl,
-          deviceId: preset.id,
-        },
-      };
-      children.push(browserNode);
-
+      const hostname = new URL(pageUrl).hostname;
+      const rootHeight = Math.max(preset.height, 980);
       const rootFrame: PenNode = {
         type: 'frame',
         id: frameId,
-        name: `Browser import ${new URL(pageUrl).hostname}`,
+        name: `Browser import ${hostname}`,
         x: 0,
         y: 0,
         width: preset.width,
-        height: Math.max(preset.height, 980),
+        height: rootHeight,
         fill: '#ffffff',
         clip: true,
         children,
       };
 
-      return [rootFrame];
+      // A real browser node: the canvas renders it as a live-preview card and
+      // opens a sandboxed iframe modal on double-click / the card button.
+      const browserNode: PenNode = {
+        type: 'browser',
+        id: `browser-node-${Date.now()}`,
+        name: `Live: ${hostname}`,
+        url: pageUrl,
+        deviceId: preset.id,
+        zoom: 1,
+        cornerRadius: 12,
+        x: 0,
+        y: rootHeight + 24,
+        width: preset.width,
+        height: preset.height,
+        fill: '#18181b',
+      };
+
+      return [rootFrame, browserNode];
     }
 
     function render() {
@@ -236,15 +257,16 @@ export function openBrowserImport(): Promise<{ nodes: PenNode[]; name: string } 
       } catch {
         // Keep fallback
       }
+      const rootHeight = Math.max(selectedPreset.height, 980);
       return [
         {
           type: 'frame',
           id: `browser-${Date.now()}`,
-          name: `Browser: ${hostname}`,
+          name: `Browser import ${hostname}`,
           x: 0,
           y: 0,
           width: selectedPreset.width,
-          height: selectedPreset.height,
+          height: rootHeight,
           fill: '#ffffff',
           children: [
             {
@@ -259,6 +281,20 @@ export function openBrowserImport(): Promise<{ nodes: PenNode[]; name: string } 
               fontSize: 18,
             },
           ],
+        },
+        {
+          type: 'browser',
+          id: `browser-node-${Date.now()}`,
+          name: `Live: ${hostname}`,
+          url: targetUrl,
+          deviceId: selectedPreset.id,
+          zoom: 1,
+          cornerRadius: 12,
+          x: 0,
+          y: rootHeight + 24,
+          width: selectedPreset.width,
+          height: selectedPreset.height,
+          fill: '#18181b',
         },
       ];
     }
@@ -314,7 +350,7 @@ export function openBrowserImport(): Promise<{ nodes: PenNode[]; name: string } 
 
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || `Fetch failed with status ${res.status}`);
+            throw new Error(browserErrorText(res.status, err, 'Page fetch failed'));
           }
 
           const data = await res.json();

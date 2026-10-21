@@ -9,6 +9,7 @@ import { uid } from './store';
 export const PEN_VERSION = '2.21';
 
 const VALID_TYPES = new Set<NodeType>([
+  'browser',
   'frame',
   'group',
   'rectangle',
@@ -26,6 +27,7 @@ const VALID_TYPES = new Set<NodeType>([
 const CONTAINERS = new Set<NodeType>(['frame', 'group']);
 
 const ID_PREFIX: Record<NodeType, string> = {
+  browser: 'br',
   frame: 'fr',
   group: 'gr',
   rectangle: 'rc',

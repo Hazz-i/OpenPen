@@ -22,8 +22,14 @@ import { uid } from '../core/store';
 import { renderThumbnail } from './thumbnail';
 import { svgIcon } from './icons';
 import { openSettings } from './settings';
+import { loadSettings, saveSettings } from '../core/settings';
+import { processFilesToAttachments, type AttachmentItem } from './attachments';
 import { confirmDialog, promptDialog, showContextMenu, toast } from './dialogs';
 import { readDroppedFiles } from '../core/files';
+import { openFigmaImport } from './import-figma';
+import { openBrowserImport } from './import-browser';
+import { openScreenshotImport } from './import-screenshot';
+import type { PenNode } from '../core/types';
 import '../styles/tokens.css';
 import '../styles/base.css';
 import '../styles/dashboard.css';
@@ -34,6 +40,7 @@ export interface DashboardOptions {
   onCreate(kind?: string): void;
   onOpenFile(): void;
   onOpenSettings?(): void;
+  onImport?(result: { nodes: PenNode[]; name: string }): void;
 }
 
 export function mountDashboard(
@@ -43,6 +50,9 @@ export function mountDashboard(
   let isGenerating = false;
   let activeTab: 'recents' | 'drafts' | 'templates' | 'design-systems' = 'recents';
   let activeTemplate = 'Landing page';
+  let promptText = 'A modern high-conversion landing page with hero, features, and pricing';
+  let variantCount = 1; // 1x, 2x, 3x
+  let attachments: AttachmentItem[] = [];
   let searchQuery = '';
   let viewMode: 'grid' | 'list' = 'grid';
   let recents: StoredFile[] = [];
@@ -212,6 +222,10 @@ export function mountDashboard(
   }
 
   function renderTabContent(filteredRecents: StoredFile[]): string {
+    const currentSettings = loadSettings();
+    const currentModel = currentSettings.agentModel || 'cmc/deepseek/deepseek-v4-pro';
+    const currentModelLabel = currentModel.length > 28 ? currentModel.slice(0, 26) + '...' : currentModel;
+
     if (activeTab === 'templates') {
       return `
         <div style="display: flex; flex-direction: column; gap: 16px;">
@@ -281,28 +295,58 @@ export function mountDashboard(
           class="pen-composer-textarea"
           placeholder="Design anything..."
           id="prompt-input"
-        ></textarea>
+        >${escapeHtml(promptText)}</textarea>
+
+        ${
+          attachments.length > 0
+            ? `
+          <div class="pen-composer-attachments">
+            ${attachments
+              .map(
+                (att) => `
+              <div class="pen-attachment-chip" title="${escapeHtml(att.name)}">
+                <span>${svgIcon(att.type === 'image' ? 'image' : 'file-text', 12)}</span>
+                <span class="name">${escapeHtml(att.name)}</span>
+                <button type="button" class="pen-attachment-remove" data-remove-att="${att.id}" title="Remove attachment">
+                  ${svgIcon('minus', 10)}
+                </button>
+              </div>
+            `
+              )
+              .join('')}
+          </div>
+        `
+            : ''
+        }
+
         <div class="pen-composer-footer">
           <div class="pen-composer-left">
-            <button class="pen-icon-btn" title="Add context">
+            <input type="file" id="composer-file-input" multiple accept="image/*,.pen,.md,.txt,.json,.ts,.js,.jsx,.tsx,.css,.html" style="display:none;" />
+            <button class="pen-icon-btn" id="btn-add-context" title="Add context files (images, .pen, text code)">
               ${svgIcon('plus', 16)}
             </button>
           </div>
           <div class="pen-composer-right">
-            <div class="pen-badge-tag">
+            <div class="pen-badge-tag clickable" id="btn-credits-badge" title="Generation credits — see plan">
               ${svgIcon('zap', 12)}
               <span>1x</span>
             </div>
-            <div class="pen-badge-muted">
+            <div class="pen-badge-muted clickable" id="btn-variants-badge" title="Generate variants: ${variantCount}x (click to cycle)">
               ${svgIcon('grid', 12)}
-              <span>1x</span>
+              <span>${variantCount}x</span>
             </div>
-            <div class="pen-model-select">
-              <span>cmc/deepseek/deepseek-v4-pro</span>
+            <div class="pen-model-select" title="Select AI generation model">
+              <span id="label-model-select">${escapeHtml(currentModelLabel)}</span>
               ${svgIcon('chevron-down', 12)}
+              <select id="select-agent-model" aria-label="Generation model">
+                <option value="Local template engine (offline)" ${currentModel === 'Local template engine (offline)' ? 'selected' : ''}>Local template engine (offline)</option>
+                <option value="cmc/deepseek/deepseek-v4-pro" ${currentModel === 'cmc/deepseek/deepseek-v4-pro' ? 'selected' : ''}>cmc/deepseek/deepseek-v4-pro</option>
+                <option value="Claude Sonnet" ${currentModel === 'Claude Sonnet' ? 'selected' : ''}>Claude Sonnet</option>
+                <option value="GPT-5" ${currentModel === 'GPT-5' ? 'selected' : ''}>GPT-5</option>
+              </select>
             </div>
-            <button class="pen-submit-btn" id="btn-send-prompt" title="Generate">
-              ${svgIcon('arrow-up', 14, 2)}
+            <button class="pen-submit-btn" id="btn-send-prompt" title="Generate design" ${!promptText.trim() || isGenerating ? 'disabled' : ''}>
+              ${isGenerating ? '<div class="pen-submit-spinner" style="width:12px;height:12px;border-width:1.5px;"></div>' : svgIcon('arrow-up', 14, 2)}
             </button>
           </div>
         </div>
@@ -412,15 +456,56 @@ export function mountDashboard(
 
   function handleSendPrompt() {
     const input = container.querySelector('#prompt-input') as HTMLTextAreaElement;
-    const prompt = input?.value.trim() || activeTemplate;
-    if (isGenerating) return;
+    const basePrompt = input ? input.value.trim() : promptText.trim();
+    if (!basePrompt || isGenerating) return;
 
     isGenerating = true;
     render();
 
+    // Append context from attached text files if present
+    let fullPrompt = basePrompt;
+    const textAttachments = attachments.filter((a) => a.text);
+    if (textAttachments.length > 0) {
+      fullPrompt += '\n\nContext files:\n' + textAttachments.map((a) => `[File: ${a.name}]\n${a.text}`).join('\n\n');
+    }
+
     setTimeout(() => {
       try {
-        const generated = generateFromPrompt(prompt);
+        const generated = generateFromPrompt(fullPrompt);
+
+        // If variantCount > 1, generate variants laid out side by side in one document
+        if (variantCount > 1 && generated.doc.children.length > 0) {
+          const baseNode = generated.doc.children[0];
+          const baseWidth = typeof baseNode.width === 'number' ? baseNode.width : 1000;
+          baseNode.name = `${baseNode.name || 'Screen'} (Variant 1)`;
+
+          // Accent colors for visible visual distinction between variants
+          const variantPalettes = [
+            { fill: '#10b981', name: 'Emerald' }, // Variant 2
+            { fill: '#8b5cf6', name: 'Purple' },  // Variant 3
+          ];
+
+          for (let i = 2; i <= variantCount; i++) {
+            const vClone = JSON.parse(JSON.stringify(baseNode)) as PenNode;
+            vClone.id = `v${i}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            vClone.name = `${(baseNode.name || 'Screen').replace(/\s*\(Variant 1\)/, '')} (Variant ${i})`;
+            vClone.x = (typeof baseNode.x === 'number' ? baseNode.x : 0) + (baseWidth + 80) * (i - 1);
+
+            // Apply distinct accent color to first interactive button or hero element
+            const pal = variantPalettes[i - 2];
+            if (pal && vClone.children) {
+              for (const child of vClone.children) {
+                if (child.type === 'frame' || child.type === 'rectangle') {
+                  child.fill = pal.fill;
+                  break;
+                }
+              }
+            }
+
+            generated.doc.children.push(vClone);
+          }
+        }
+
         opts.onOpen({
           id: `file-${Date.now()}`,
           name: `${generated.name}.pen`,
@@ -428,8 +513,10 @@ export function mountDashboard(
           doc: generated.doc,
           thumbnail: renderThumbnail(generated.doc, 560, 350),
         });
-      } catch {
-        opts.onCreate(prompt);
+      } catch (err) {
+        isGenerating = false;
+        toast((err as Error).message || 'Generation failed', 'error');
+        render();
       }
     }, 600);
   }
@@ -502,16 +589,94 @@ export function mountDashboard(
     });
 
     // Chips
+    const templatePrompts: Record<string, string> = {
+      'Landing page': 'A modern high-conversion landing page with hero, features, and pricing',
+      'Mobile app': 'An iOS mobile app design for health, wellness, and activity tracking',
+      'Web app': 'A modern cloud SaaS web application workspace with analytics',
+      'Slides': 'A clean 16:9 pitch deck presentation with key metric slides',
+      'Dashboard': 'An executive KPI analytics dashboard with charts and revenue stats',
+      'Something else...': '',
+    };
+
     container.querySelectorAll('[data-chip]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
-        activeTemplate = (e.currentTarget as HTMLElement).getAttribute('data-chip') || 'Landing page';
+        const chip = (e.currentTarget as HTMLElement).getAttribute('data-chip') || 'Landing page';
+        activeTemplate = chip;
+        promptText = templatePrompts[chip] ?? '';
+        render();
+
+        if (chip === 'Something else...') {
+          const ta = container.querySelector('#prompt-input') as HTMLTextAreaElement;
+          ta?.focus();
+        }
+      });
+    });
+
+    // File input for attachments
+    const fileInput = container.querySelector('#composer-file-input') as HTMLInputElement;
+    container.querySelector('#btn-add-context')?.addEventListener('click', () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener('change', async () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        const newAtts = await processFilesToAttachments(fileInput.files);
+        attachments = [...attachments, ...newAtts].slice(0, 8);
+        render();
+      }
+    });
+
+    // Remove attachment chip
+    container.querySelectorAll('[data-remove-att]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-remove-att');
+        attachments = attachments.filter((a) => a.id !== id);
         render();
       });
     });
 
+    // Credits badge click -> open account menu or plan
+    container.querySelector('#btn-credits-badge')?.addEventListener('click', (e) => {
+      const auth = getAuth();
+      if (auth.user) {
+        openAccountMenu(e.currentTarget as HTMLElement);
+      } else {
+        window.dispatchEvent(new CustomEvent('penclone:open-auth'));
+      }
+    });
+
+    // Variant badge click -> cycle 1x -> 2x -> 3x
+    container.querySelector('#btn-variants-badge')?.addEventListener('click', () => {
+      variantCount = variantCount >= 3 ? 1 : variantCount + 1;
+      render();
+    });
+
+    // Model selection dropdown
+    const modelSelect = container.querySelector('#select-agent-model') as HTMLSelectElement;
+    modelSelect?.addEventListener('change', () => {
+      const chosen = modelSelect.value;
+      const s = loadSettings();
+      s.agentModel = chosen;
+      saveSettings(s);
+      if (chosen !== 'Local template engine (offline)') {
+        toast('Offline template engine will be used; model is saved for future agent runs.', 'info');
+      }
+      render();
+    });
+
+    // Prompt textarea input listener
+    const textarea = container.querySelector('#prompt-input') as HTMLTextAreaElement;
+    textarea?.addEventListener('input', () => {
+      promptText = textarea.value;
+      const sendBtn = container.querySelector('#btn-send-prompt') as HTMLButtonElement;
+      if (sendBtn) {
+        sendBtn.disabled = !promptText.trim() || isGenerating;
+      }
+    });
+
     // Prompt submit
     container.querySelector('#btn-send-prompt')?.addEventListener('click', handleSendPrompt);
-    const textarea = container.querySelector('#prompt-input') as HTMLTextAreaElement;
     if (textarea) {
       textarea.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -521,11 +686,19 @@ export function mountDashboard(
       });
     }
 
-    // Import cards
+    // Import cards: each card owns a real dialog/import flow.
     container.querySelectorAll('[data-import]').forEach((card) => {
-      card.addEventListener('click', (e) => {
+      card.addEventListener('click', async (e) => {
         const kind = (e.currentTarget as HTMLElement).getAttribute('data-import');
-        opts.onCreate(kind || 'landing');
+        try {
+          let result: { nodes: PenNode[]; name: string } | null = null;
+          if (kind === 'figma') result = await openFigmaImport();
+          else if (kind === 'browser') result = await openBrowserImport();
+          else if (kind === 'screenshot') result = await openScreenshotImport();
+          if (result && opts.onImport) opts.onImport(result);
+        } catch (err) {
+          toast(`Import failed: ${(err as Error).message || 'unknown error'}`, 'error');
+        }
       });
     });
 

@@ -3,7 +3,7 @@ import './styles/base.css';
 
 import { EditorStore, uid } from './core/store';
 import type { PenDocument, PenNode } from './core/types';
-import { createBlankDocument, parsePenFile, serializePenFile } from './core/format';
+import { PEN_VERSION, createBlankDocument, parsePenFile, serializePenFile } from './core/format';
 import { generateFromPrompt } from './core/samples';
 import {
   saveRecent,
@@ -293,6 +293,20 @@ function openDocument(
   };
 }
 
+function uniqueImportedNodes(nodes: PenNode[]): PenNode[] {
+  const seen = new Set<string>();
+  const walk = (list: PenNode[]): PenNode[] =>
+    list.map((node) => {
+      let id = node.id || uid('node');
+      if (seen.has(id)) id = uid('node');
+      seen.add(id);
+      const copy: PenNode = { ...node, id };
+      if (copy.children) copy.children = walk(copy.children);
+      return copy;
+    });
+  return walk(nodes);
+}
+
 function showDashboard(): void {
   teardown();
   if (store) persistCurrent();
@@ -318,6 +332,16 @@ function showDashboard(): void {
     },
     onOpenFile: () => {
       void openFileFlow(true);
+    },
+    onImport: (result) => {
+      const doc: PenDocument = {
+        version: PEN_VERSION,
+        children: uniqueImportedNodes(result.nodes),
+      };
+      const base = result.name.trim() || 'Imported design';
+      const name = base.toLowerCase().endsWith('.pen') ? base : `${base}.pen`;
+      openDocument(doc, name, { thumbnail: thumbnailFor(doc) });
+      toast(`Imported ${name}`, 'success');
     },
   });
 }
