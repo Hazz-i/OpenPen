@@ -1,0 +1,104 @@
+/* Import Dialogs Styles */
+
+.pen-import-dialog {
+  width: 580px;
+  max-width: 95vw;
+}
+
+.pen-import-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.pen-import-tab-btn {
+  height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.pen-import-tab-btn:hover {
+  color: var(--fg-strong);
+}
+
+.pen-import-tab-btn.active {
+  color: var(--fg-strong);
+  border-bottom-color: var(--accent);
+}
+
+.pen-import-dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 32px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.01);
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.pen-import-dropzone:hover,
+.pen-import-dropzone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.pen-import-preview-box {
+  width: 100%;
+  max-height: 220px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: #1d1d1f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  padding: 12px;
+}
+
+.pen-import-preview-box img {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+}
+
+/* Palette Swatches */
+.pen-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.pen-palette-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.pen-palette-chip .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}

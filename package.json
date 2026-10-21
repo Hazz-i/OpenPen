@@ -1,0 +1,19 @@
+{
+  "name": "pen-clone",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lightweight web clone of the pen.dev desktop design editor",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "server": "go run ./server -web ./dist -data ./data",
+    "server:build": "bash scripts/build.sh",
+    "dev:all": "bash scripts/dev.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0"
+  }
+}

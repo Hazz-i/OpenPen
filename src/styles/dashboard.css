@@ -1,0 +1,534 @@
+/* Dashboard Layout */
+.pen-dashboard {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+}
+
+/* Sidebar */
+.pen-dashboard-sidebar {
+  width: 216px;
+  min-width: 216px;
+  height: 100%;
+  background-color: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 8px;
+}
+
+.pen-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-strong);
+  letter-spacing: -0.2px;
+}
+
+.pen-brand-icon {
+  width: 18px;
+  height: 18px;
+  color: #ffffff;
+}
+
+.pen-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 20px;
+}
+
+.pen-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.pen-nav-item:hover {
+  background-color: var(--input);
+  color: var(--fg-strong);
+}
+
+.pen-nav-item.active {
+  background-color: #27272a;
+  color: var(--fg-strong);
+}
+
+.pen-nav-header {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  padding: 4px 12px;
+  text-transform: uppercase;
+}
+
+/* Main content */
+.pen-dashboard-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* Top bar */
+.pen-dashboard-topbar {
+  height: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid transparent;
+}
+
+.pen-dashboard-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-strong);
+}
+
+.pen-dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pen-btn-secondary {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 500;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.pen-btn-secondary:hover {
+  background: var(--input);
+  color: var(--fg-strong);
+}
+
+.pen-btn-primary {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 500;
+  gap: 4px;
+  transition: opacity 0.15s;
+}
+
+.pen-btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* Container */
+.pen-dashboard-content {
+  max-width: 840px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 24px 64px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Template Chips */
+.pen-template-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.pen-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: #141414;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.pen-chip:hover {
+  color: var(--fg-strong);
+  border-color: #3f3f46;
+}
+
+.pen-chip.active {
+  border-color: #ffffff;
+  color: #ffffff;
+  background: #1a1a1a;
+}
+
+/* Prompt Composer */
+.pen-composer-box {
+  background: #141414;
+  border: 1px solid #27272a;
+  border-radius: 14px;
+  padding: 14px 16px 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  position: relative;
+  overflow: hidden;
+}
+
+.pen-composer-box::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+}
+
+.pen-composer-textarea {
+  width: 100%;
+  height: 60px;
+  background: transparent;
+  border: none;
+  resize: none;
+  font-size: 14px;
+  color: var(--fg-strong);
+  outline: none;
+  font-family: inherit;
+}
+
+.pen-composer-textarea::placeholder {
+  color: #52525b;
+}
+
+.pen-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+
+.pen-composer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pen-icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.pen-icon-btn:hover {
+  color: var(--fg-strong);
+  background: var(--input);
+}
+
+.pen-composer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pen-badge-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #eab308;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.pen-badge-muted {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pen-model-select {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.pen-model-select:hover {
+  color: var(--fg-strong);
+  background: var(--input);
+}
+
+.pen-submit-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: #27272a;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.pen-submit-btn:hover {
+  background: #3f3f46;
+}
+
+.pen-submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Import Cards */
+.pen-import-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.pen-import-card {
+  background: #141414;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+  color: var(--muted);
+}
+
+.pen-import-card:hover {
+  background: #18181b;
+  border-color: var(--border-strong);
+  color: var(--fg-strong);
+}
+
+.pen-import-card-title {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Recents Section */
+.pen-recents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.pen-recents-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+
+.pen-recents-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pen-recents-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.pen-recent-card {
+  background: #141414;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  position: relative;
+}
+
+.pen-recent-card:hover {
+  border-color: #3f3f46;
+}
+
+.pen-recent-thumb-container {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: #1d1d1f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.pen-recent-thumb-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pen-recent-meta {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.pen-recent-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pen-recent-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pen-recent-subtext {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.pen-recent-menu-btn {
+  opacity: 0;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--muted);
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.pen-recent-card:hover .pen-recent-menu-btn {
+  opacity: 1;
+}
+
+.pen-recent-menu-btn:hover {
+  background: var(--input);
+  color: var(--fg-strong);
+}
+
+/* Generating indicator */
+.pen-generating-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(61, 153, 255, 0.1);
+  border: 1px solid rgba(61, 153, 255, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 12px;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Light theme: several phase-1 surfaces were authored as fixed dark panels.
+   Keep the same layout, only swap the surfaces so text stays readable. */
+[data-theme='light'] .pen-chip {
+  background: var(--input);
+  border-color: var(--border);
+  color: var(--muted);
+}
+[data-theme='light'] .pen-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--fg-strong);
+}
+[data-theme='light'] .pen-chip.active {
+  background: var(--panel);
+  border-color: var(--accent);
+  color: var(--fg-strong);
+}
+[data-theme='light'] .pen-composer-box {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: 0 4px 20px rgba(15, 15, 20, 0.08);
+}
+[data-theme='light'] .pen-composer-box::before {
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.08), transparent);
+}
+[data-theme='light'] .pen-composer-textarea::placeholder {
+  color: var(--faint);
+}
+[data-theme='light'] .pen-submit-btn {
+  background: var(--accent);
+  color: #fff;
+}
+[data-theme='light'] .pen-submit-btn:hover {
+  filter: brightness(1.06);
+}
+[data-theme='light'] .pen-import-card {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--muted);
+}
+[data-theme='light'] .pen-import-card:hover {
+  background: var(--input);
+  border-color: var(--border-strong);
+  color: var(--fg-strong);
+}
+[data-theme='light'] .pen-recent-card {
+  background: var(--panel);
+}
+[data-theme='light'] .pen-recent-card:hover {
+  border-color: var(--border-strong);
+}
+[data-theme='light'] .pen-recent-thumb-container {
+  background: var(--input);
+}
